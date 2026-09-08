@@ -1,0 +1,28 @@
+# Local build output
+build/
+
+# Visual Studio / IDE
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Compiled binaries
+bin/
+obj/
+*.dll
+*.pdb
+*.tlb
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.log
+
+# Release output
+release/
+*.exe
