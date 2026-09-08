@@ -48,7 +48,7 @@ Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README_RU.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [UninstallRun]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File \"{app}\Uninstall.ps1\" -Quiet -SkipElevation"; WorkingDir: "{app}"; Flags: runhidden waituntilterminated; RunOnceId: "UnregisterSolidWorksSlicerBridge"
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Uninstall.ps1"" -Quiet -SkipElevation"; WorkingDir: "{app}"; Flags: runhidden waituntilterminated; RunOnceId: "UnregisterSolidWorksSlicerBridge"
 
 [Code]
 function IsSolidWorks2026Present(): Boolean;
