@@ -63,18 +63,20 @@ namespace SolidWorks.Interop.sldworks
         public int RemovedCount;
         public bool IgnorePrevious;
         public ICommandGroup Group;
-        private readonly Dictionary<int, ICommandTab> tabs = new Dictionary<int, ICommandTab>();
-        public ICommandManager() { tabs[1] = new ICommandTab(); tabs[2] = new ICommandTab(); }
+        private readonly Dictionary<int, CommandTab> tabs = new Dictionary<int, CommandTab>();
+        public ICommandManager() { tabs[1] = new CommandTab(); tabs[2] = new CommandTab(); }
         public bool GetGroupDataFromRegistry(int id, out object data)
         { data = new int[] { 1001, 1002, 1003, 1004 }; return true; }
         public ICommandGroup CreateCommandGroup2(int id, string title, string tooltip,
             string hint, int position, bool ignore, ref int errors)
         { errors = 0; IgnorePrevious = ignore; Group = new ICommandGroup { Callbacks = Callbacks }; return Group; }
-        public ICommandTab GetCommandTab(int type, string name)
-        { ICommandTab tab; return tabs.TryGetValue(type, out tab) ? tab : null; }
-        public ICommandTab AddCommandTab(int type, string name)
-        { TabCount++; ICommandTab tab = new ICommandTab(); tabs[type] = tab; return tab; }
-        public bool RemoveCommandTab(ICommandTab tab)
+        // Match the vendor API signatures. Widening these to ICommandTab would
+        // hide the compile error in the production RemoveCommandTab call.
+        public CommandTab GetCommandTab(int type, string name)
+        { CommandTab tab; return tabs.TryGetValue(type, out tab) ? tab : null; }
+        public CommandTab AddCommandTab(int type, string name)
+        { TabCount++; CommandTab tab = new CommandTab(); tabs[type] = tab; return tab; }
+        public bool RemoveCommandTab(CommandTab tab)
         {
             foreach (int type in new List<int>(tabs.Keys))
                 if (Object.ReferenceEquals(tabs[type], tab)) { tabs.Remove(type); RemovedCount++; return true; }
@@ -101,7 +103,13 @@ namespace SolidWorks.Interop.sldworks
         public int get_CommandID(int index) { return 1000 + index; }
         public bool Activate() { return true; }
     }
-    public class ICommandTab { public CommandTabBox AddCommandTabBox() { return new CommandTabBox(); } }
+    public interface ICommandTab { CommandTabBox AddCommandTabBox(); }
+    // A limited managed stand-in, not a COM coclass. It preserves the relevant
+    // assignability rule: CommandTab -> ICommandTab, but not the reverse.
+    public class CommandTab : ICommandTab
+    {
+        public CommandTabBox AddCommandTabBox() { return new CommandTabBox(); }
+    }
     public class CommandTabBox { public bool AddCommands(object ids, object styles) { return true; } }
 }
 
