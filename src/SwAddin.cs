@@ -209,7 +209,7 @@ namespace SolidWorksSlicerBridge
 
             SetStartupStage("AddCommandItem2: Settings");
             int settingsIndex = commandGroup.AddCommandItem2(
-                "Slicer Settings", -1, "Настроить пути кслайсерам", "Slicer Settings", 3,
+                "Slicer Settings", -1, "Настроить пути к слайсерам", "Slicer Settings", 3,
                 "ShowSettings", "AlwaysEnabled", 1004, menuAndToolbar);
 
             if (orcaIndex < 0 || bambuIndex < 0 || prusaIndex < 0 || settingsIndex < 0)
