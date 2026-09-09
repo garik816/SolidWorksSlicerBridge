@@ -94,7 +94,8 @@ begin
     begin
       MsgBox(
         'SolidWorks Slicer Bridge could not be built or registered.' + #13#10 + #13#10 +
-        'Make sure SOLIDWORKS 2026 is installed and closed, then run Setup again.' + #13#10 +
+        'Make sure SOLIDWORKS 2026 is installed and closed, then run Setup again.' + #13#10 + #13#10 +
+        'Detailed log: ' + ExpandConstant('{app}\install.log') + #13#10 +
         'Setup log: ' + ExpandConstant('{log}'),
         mbError, MB_OK);
       RaiseException('Add-In installation failed.');
