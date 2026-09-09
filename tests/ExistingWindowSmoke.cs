@@ -174,6 +174,8 @@ public static class ExistingWindowSmoke
         public bool Fail;
         public bool Throw;
         public bool SelectionCleared;
+        public int SaveCalls;
+        public Action AfterSave;
         public ModelStub(HostStub app) { host = app; }
         public new int GetType() { return (int)swDocumentTypes_e.swDocPART; }
         public string GetTitle() { return "test.SLDPRT"; }
@@ -181,6 +183,7 @@ public static class ExistingWindowSmoke
         public IModelDocExtension Extension { get { return this; } }
         public bool SaveAs3(string file, int version, int options, object data, object advanced, ref int errors, ref int warnings)
         {
+            SaveCalls++;
             Assert(host.Units == (int)swLengthUnit_e.swMM, "STL units are not mm.");
             Assert(host.GetUserPreferenceToggle((int)swUserPreferenceToggle_e.swSTLBinaryFormat), "Binary STL not selected.");
             Assert(host.GetUserPreferenceToggle((int)swUserPreferenceToggle_e.swSTLComponentsIntoOneFile), "Assembly must export to one file.");
@@ -192,6 +195,7 @@ public static class ExistingWindowSmoke
             if (Fail) { errors = 2; return false; }
             using (BinaryWriter writer = new BinaryWriter(File.Create(file)))
             { writer.Write(new byte[80]); writer.Write((uint)1); writer.Write(new byte[50]); }
+            if (AfterSave != null) AfterSave();
             return true;
         }
     }
@@ -202,6 +206,7 @@ public static class ExistingWindowSmoke
         for (int pref = 1; pref <= 6; pref++) app.Toggles[pref] = (pref % 2 == 0);
         ModelStub model = new ModelStub(app);
         string path = Path.Combine(root, "export.stl");
+        int binary = (int)swUserPreferenceToggle_e.swSTLBinaryFormat;
         Action checkRestored = delegate
         {
             Assert(app.Units == 3, "Original STL units not restored.");
@@ -213,8 +218,38 @@ public static class ExistingWindowSmoke
         MustFail(delegate { AppendExport.Save(app, model, path); }, "Failed export was accepted."); checkRestored();
         model.Fail = false; model.Throw = true;
         MustFail(delegate { AppendExport.Save(app, model, path); }, "Export exception was ignored."); checkRestored();
-        model.Throw = false; app.RejectNextToggle = (int)swUserPreferenceToggle_e.swSTLComponentsIntoOneFile;
-        MustFail(delegate { AppendExport.Save(app, model, path); }, "Rejected preference was ignored."); checkRestored();
+        model.Throw = false;
+
+        // The void setter can silently ignore a requested change. Binary starts
+        // false and must become true: read-back must stop export on a mismatch.
+        int before = model.SaveCalls;
+        app.RejectNextToggle = binary;
+        MustFail(delegate { AppendExport.Save(app, model, path); }, "Ignored toggle change was not detected by read-back.");
+        Assert(model.SaveCalls == before, "Export ran after a rejected toggle change.");
+        checkRestored();
+        app.ThrowAfterSetToggle = binary;
+        MustFail(delegate { AppendExport.Save(app, model, path); }, "Setter exception after partial mutation was ignored.");
+        Assert(model.SaveCalls == before, "Export ran after a setter exception.");
+        checkRestored();
+        Console.WriteLine("PASS: void setter read-back rejects ignored changes; partial mutations are restored before export.");
+
+        // A no-op is valid when the saved value already equals the request.
+        app.RejectNextToggle = (int)swUserPreferenceToggle_e.swSTLComponentsIntoOneFile;
+        AppendExport.Save(app, model, path); checkRestored();
+        Console.WriteLine("PASS: an already-correct toggle value does not cause a false failure.");
+
+        // Fail specifically during restoration after a successful file write.
+        // Save must fail rather than let the caller dispatch the new STL.
+        model.AfterSave = delegate { app.RejectNextToggle = binary; };
+        MustFail(delegate { AppendExport.Save(app, model, path); }, "Ignored restoration was accepted.");
+        Assert(app.Toggles[binary], "The restoration mismatch fixture did not remain changed.");
+        app.Toggles[binary] = false;
+        checkRestored(); // All the other settings were still restored.
+        model.AfterSave = delegate { app.ThrowAfterSetToggle = binary; };
+        MustFail(delegate { AppendExport.Save(app, model, path); }, "Restoration exception was ignored.");
+        checkRestored();
+        model.AfterSave = null;
+        Console.WriteLine("PASS: restoration mismatches and exceptions block dispatch without skipping other settings.");
         Console.WriteLine("PASS: STL mm/binary/whole model; preferences restored after success, error, exception and rejected setting.");
     }
 
