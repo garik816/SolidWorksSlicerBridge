@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'New release version, e.g. 1.0.6'
+        description: 'New release version, e.g. 1.0.8'
         required: true
-        default: '1.0.6'
+        default: '1.0.8'
 
 permissions:
   contents: write
@@ -57,6 +57,13 @@ jobs:
           & .\tests\Test-CallbackDispatch.ps1
           if (-not $?) { exit 1 }
 
+      - name: Test existing-window IPC and STL export preferences
+        shell: powershell
+        timeout-minutes: 3
+        run: |
+          & .\tests\Test-ExistingWindow.ps1
+          if (-not $?) { exit 1 }
+
       - name: Test installer dependency deployment on PowerShell 5.1
         shell: powershell
         timeout-minutes: 3
@@ -87,6 +94,8 @@ jobs:
           $file = Get-Item "release\SolidWorksSlicerBridge-$env:RELEASE_VERSION-Setup-x64.exe"
           $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $($file.Name)" | Set-Content -LiteralPath "$($file.FullName).sha256" -Encoding ascii
+          git archive --format=zip --output=release/source-snapshot.zip HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -96,6 +105,7 @@ jobs:
             release/*.exe
             release/*.sha256
             release/icon-preview/*.png
+            release/source-snapshot.zip
           if-no-files-found: error
 
       - name: Publish GitHub Release
