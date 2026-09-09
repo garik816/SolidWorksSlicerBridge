@@ -18,7 +18,9 @@ try {
         '/debug:pdbonly', '/main:ExistingWindowSmoke',
         '/reference:System.dll', '/reference:System.Core.dll',
         '/reference:System.Drawing.dll', '/reference:System.Windows.Forms.dll',
-        '/reference:System.Web.Extensions.dll',
+        '/reference:System.Web.Extensions.dll'
+    )
+    $testSources = @(
         (Join-Path $PSScriptRoot 'CallbackInteropSmoke.cs'),
         (Join-Path $PSScriptRoot 'ExistingWindowSmoke.cs')
     )
@@ -38,7 +40,8 @@ try {
     }
     Set-Content -LiteralPath $brokenSource -Value $text -Encoding UTF8
     $negativeSources = @($sources | Where-Object { $_ -ne $appendSource }) + @($brokenSource)
-    $negativeArguments = $commonArguments + @("/out:$work\MustNotCompile.exe") + $negativeSources
+    # Legacy csc requires /out and /target before every input source file.
+    $negativeArguments = $commonArguments + @("/out:$work\MustNotCompile.exe") + $testSources + $negativeSources
     $oldErrorPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
@@ -53,7 +56,7 @@ try {
     }
     Write-Host 'PASS: both v1.0.8 void-toggle expressions are rejected with CS0023.'
 
-    $compilerArguments = $commonArguments + @("/out:$exe") + $sources
+    $compilerArguments = $commonArguments + @("/out:$exe") + $testSources + $sources
     & $csc @compilerArguments
     if ($LASTEXITCODE -ne 0) { throw 'Append regression tests did not compile.' }
     $start = New-Object System.Diagnostics.ProcessStartInfo
