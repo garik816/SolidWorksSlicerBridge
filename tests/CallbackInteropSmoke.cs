@@ -47,7 +47,9 @@ namespace SolidWorks.Interop.sldworks
         object ActiveDoc { get; }
         string RevisionNumber();
         bool GetUserPreferenceToggle(int pref);
-        bool SetUserPreferenceToggle(int pref, bool value);
+        // ISldWorks (system options) returns void; do not substitute the
+        // bool signature of IModelDocExtension.SetUserPreferenceToggle.
+        void SetUserPreferenceToggle(int pref, bool value);
         int GetUserPreferenceIntegerValue(int pref);
         bool SetUserPreferenceIntegerValue(int pref, int value);
     }
@@ -207,6 +209,7 @@ public class HostStub : SolidWorks.Interop.sldworks.ISldWorks
     public readonly Dictionary<int, bool> Toggles = new Dictionary<int, bool>();
     public int Units = 3;
     public int RejectNextToggle;
+    public int ThrowAfterSetToggle;
     private readonly string revision = "ICON-TEST-" + Guid.NewGuid().ToString("N");
     public bool SetAddinCallbackInfo2(long handle, object callbacks, int cookie)
     {
@@ -218,10 +221,15 @@ public class HostStub : SolidWorks.Interop.sldworks.ISldWorks
     public object ActiveDoc { get { return null; } }
     public string RevisionNumber() { return revision; }
     public bool GetUserPreferenceToggle(int pref) { bool value; return Toggles.TryGetValue(pref, out value) && value; }
-    public bool SetUserPreferenceToggle(int pref, bool value)
+    public void SetUserPreferenceToggle(int pref, bool value)
     {
-        if (RejectNextToggle == pref) { RejectNextToggle = 0; return false; }
-        Toggles[pref] = value; return true;
+        if (RejectNextToggle == pref) { RejectNextToggle = 0; return; }
+        Toggles[pref] = value;
+        if (ThrowAfterSetToggle == pref)
+        {
+            ThrowAfterSetToggle = 0;
+            throw new InvalidOperationException("Injected exception after applying toggle " + pref);
+        }
     }
     public int GetUserPreferenceIntegerValue(int pref) { return Units; }
     public bool SetUserPreferenceIntegerValue(int pref, int value) { Units = value; return true; }
