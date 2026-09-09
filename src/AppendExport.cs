@@ -33,8 +33,13 @@ namespace SolidWorksSlicerBridge
                 if (!app.SetUserPreferenceIntegerValue(unitsPreference, (int)swLengthUnit_e.swMM))
                     throw new InvalidOperationException("SOLIDWORKS could not set STL units to millimeters.");
                 for (int i = 0; i < toggles.Length; i++)
-                    if (!app.SetUserPreferenceToggle(toggles[i], requested[i]))
+                {
+                    // ISldWorks.SetUserPreferenceToggle returns void, unlike the
+                    // integer setter. Verify the actual setting through its getter.
+                    app.SetUserPreferenceToggle(toggles[i], requested[i]);
+                    if (app.GetUserPreferenceToggle(toggles[i]) != requested[i])
                         throw new InvalidOperationException("SOLIDWORKS rejected STL preference " + toggles[i]);
+                }
                 model.ClearSelection2(true);
                 int errors = 0, warnings = 0;
                 bool ok = model.Extension.SaveAs3(path,
@@ -57,7 +62,8 @@ namespace SolidWorksSlicerBridge
                 {
                     try
                     {
-                        if (!app.SetUserPreferenceToggle(toggles[i], saved[i])) restoreFailures.Add(toggles[i].ToString());
+                        app.SetUserPreferenceToggle(toggles[i], saved[i]);
+                        if (app.GetUserPreferenceToggle(toggles[i]) != saved[i]) restoreFailures.Add(toggles[i].ToString());
                     }
                     catch { restoreFailures.Add(toggles[i].ToString()); }
                 }
