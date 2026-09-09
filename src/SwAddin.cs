@@ -39,7 +39,7 @@ namespace SolidWorksSlicerBridge
         private const int CommandGroupId = 73191;
         private const string CommandTabName = "3D Print";
         private const string AddinGuid = "{D51D3347-A8E7-4892-A8BD-391203C2E8A4}";
-        private const string BridgeVersion = "1.0.6";
+        private const string BridgeVersion = "1.0.7";
 
         private ISldWorks swApp;
         private ICommandManager commandManager;
@@ -209,7 +209,7 @@ namespace SolidWorksSlicerBridge
 
             SetStartupStage("AddCommandItem2: Settings");
             int settingsIndex = commandGroup.AddCommandItem2(
-                "Slicer Settings", -1, "Настроить пути к слайсерам", "Slicer Settings", 3,
+                "Slicer Settings", -1, "Настроить пути кслайсерам", "Slicer Settings", 3,
                 "ShowSettings", "AlwaysEnabled", 1004, menuAndToolbar);
 
             if (orcaIndex < 0 || bambuIndex < 0 || prusaIndex < 0 || settingsIndex < 0)
@@ -238,7 +238,8 @@ namespace SolidWorksSlicerBridge
         private void AddCommandTab(int docType, int[] commandIds)
         {
             SetStartupStage("GetCommandTab: document type " + docType);
-            ICommandTab tab = commandManager.GetCommandTab(docType, CommandTabName);
+            // Preserve the API's CommandTab type: RemoveCommandTab does not accept ICommandTab.
+            CommandTab tab = commandManager.GetCommandTab(docType, CommandTabName);
             if (tab != null && refreshCommandTabs)
             {
                 // One-time migration of our own tab; do not reset other SOLIDWORKS toolbars.
