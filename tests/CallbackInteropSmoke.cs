@@ -27,7 +27,12 @@ namespace SolidWorks.Interop.swconst
     public enum swCommandItemType_e { swMenuItem = 1, swToolbarItem = 2 }
     public enum swDocumentTypes_e { swDocPART = 1, swDocASSEMBLY = 2 }
     public enum swCommandTabButtonTextDisplay_e { swCommandTabButton_TextHorizontal = 1 }
-    public enum swUserPreferenceToggle_e { sw3MFShowInfoOnSave = 1, swSTLPreview = 2 }
+    public enum swUserPreferenceToggle_e {
+        sw3MFShowInfoOnSave = 1, swSTLPreview = 2, swSTLBinaryFormat = 3,
+        swSTLComponentsIntoOneFile = 4, swSTLShowInfoOnSave = 5, swSTLCheckForInterference = 6
+    }
+    public enum swUserPreferenceIntegerValue_e { swExportStlUnits = 1 }
+    public enum swLengthUnit_e { swMM = 0 }
     public enum swSaveAsVersion_e { swSaveAsCurrentVersion = 0 }
     public enum swSaveAsOptions_e { swSaveAsOptions_Silent = 1 }
 }
@@ -43,6 +48,8 @@ namespace SolidWorks.Interop.sldworks
         string RevisionNumber();
         bool GetUserPreferenceToggle(int pref);
         bool SetUserPreferenceToggle(int pref, bool value);
+        int GetUserPreferenceIntegerValue(int pref);
+        bool SetUserPreferenceIntegerValue(int pref, int value);
     }
     public interface IModelDoc2
     {
@@ -66,12 +73,14 @@ namespace SolidWorks.Interop.sldworks
         private readonly Dictionary<int, CommandTab> tabs = new Dictionary<int, CommandTab>();
         public ICommandManager() { tabs[1] = new CommandTab(); tabs[2] = new CommandTab(); }
         public bool GetGroupDataFromRegistry(int id, out object data)
-        { data = new int[] { 1001, 1002, 1003, 1004 }; return true; }
+        {
+            data = Group == null ? new int[] { 1001, 1002, 1003, 1004 } : Group.UserIds.ToArray();
+            return true;
+        }
         public ICommandGroup CreateCommandGroup2(int id, string title, string tooltip,
             string hint, int position, bool ignore, ref int errors)
         { errors = 0; IgnorePrevious = ignore; Group = new ICommandGroup { Callbacks = Callbacks }; return Group; }
-        // Match the vendor API signatures. Widening these to ICommandTab would
-        // hide the compile error in the production RemoveCommandTab call.
+        // Match the vendor API signatures; ICommandTab would hide CS1503.
         public CommandTab GetCommandTab(int type, string name)
         { CommandTab tab; return tabs.TryGetValue(type, out tab) ? tab : null; }
         public CommandTab AddCommandTab(int type, string name)
@@ -88,6 +97,7 @@ namespace SolidWorks.Interop.sldworks
     {
         public object Callbacks;
         public int CommandCount;
+        public readonly List<int> UserIds = new List<int>();
         public object IconList { get; set; }
         public object MainIconList { get; set; }
         public bool HasToolbar { get; set; }
@@ -97,20 +107,32 @@ namespace SolidWorks.Interop.sldworks
         {
             DispatchProbe.FindId(Callbacks, callback);
             DispatchProbe.FindId(Callbacks, enable);
-            if (image != CommandCount) throw new Exception("Incorrect icon index for " + name);
+            int[] expectedImages = { 0, 1, 2, 3, 0, 1, 2 };
+            if (image != expectedImages[CommandCount] || userId != 1001 + CommandCount)
+                throw new Exception("Incorrect icon or stable command ID for " + name);
+            UserIds.Add(userId);
             return CommandCount++;
         }
         public int get_CommandID(int index) { return 1000 + index; }
         public bool Activate() { return true; }
     }
     public interface ICommandTab { CommandTabBox AddCommandTabBox(); }
-    // A limited managed stand-in, not a COM coclass. It preserves the relevant
-    // assignability rule: CommandTab -> ICommandTab, but not the reverse.
     public class CommandTab : ICommandTab
     {
         public CommandTabBox AddCommandTabBox() { return new CommandTabBox(); }
     }
-    public class CommandTabBox { public bool AddCommands(object ids, object styles) { return true; } }
+    public class CommandTabBox
+    {
+        public bool AddCommands(object ids, object styles)
+        {
+            int[] expected = { 1000, 1001, 1002, 1004, 1005, 1006, 1003 };
+            int[] actual = (int[])ids;
+            if (actual.Length != expected.Length) throw new Exception("Missing commands in the tab.");
+            for (int i = 0; i < expected.Length; i++)
+                if (actual[i] != expected[i]) throw new Exception("Wrong command order in the tab.");
+            return true;
+        }
+    }
 }
 
 [ComVisible(true)]
@@ -182,6 +204,9 @@ public static class DispatchProbe
 public class HostStub : SolidWorks.Interop.sldworks.ISldWorks
 {
     public readonly SolidWorks.Interop.sldworks.ICommandManager Manager = new SolidWorks.Interop.sldworks.ICommandManager();
+    public readonly Dictionary<int, bool> Toggles = new Dictionary<int, bool>();
+    public int Units = 3;
+    public int RejectNextToggle;
     private readonly string revision = "ICON-TEST-" + Guid.NewGuid().ToString("N");
     public bool SetAddinCallbackInfo2(long handle, object callbacks, int cookie)
     {
@@ -192,8 +217,14 @@ public class HostStub : SolidWorks.Interop.sldworks.ISldWorks
     public SolidWorks.Interop.sldworks.ICommandManager GetCommandManager(int cookie) { return Manager; }
     public object ActiveDoc { get { return null; } }
     public string RevisionNumber() { return revision; }
-    public bool GetUserPreferenceToggle(int pref) { return false; }
-    public bool SetUserPreferenceToggle(int pref, bool value) { return true; }
+    public bool GetUserPreferenceToggle(int pref) { bool value; return Toggles.TryGetValue(pref, out value) && value; }
+    public bool SetUserPreferenceToggle(int pref, bool value)
+    {
+        if (RejectNextToggle == pref) { RejectNextToggle = 0; return false; }
+        Toggles[pref] = value; return true;
+    }
+    public int GetUserPreferenceIntegerValue(int pref) { return Units; }
+    public bool SetUserPreferenceIntegerValue(int pref, int value) { Units = value; return true; }
 }
 
 public static class CallbackInteropSmoke
@@ -256,9 +287,9 @@ public static class CallbackInteropSmoke
                 Console.WriteLine("PASS negative control: old callback shape rejects IDispatch/name lookup, HRESULT=0x" + ex.ErrorCode.ToString("X8"));
             }
             if (!rejected) throw new Exception("Negative control did not reproduce inaccessible COM callbacks.");
-
             SwAddin addin = new SwAddin();
-            string[] methods = { "CanExport", "AlwaysEnabled", "OpenInOrca", "OpenInBambu", "OpenInPrusa", "ShowSettings" };
+            string[] methods = { "CanExport", "AlwaysEnabled", "OpenInOrca", "OpenInBambu", "OpenInPrusa", "ShowSettings",
+                "AddToOpenOrca", "AddToOpenBambu", "AddToOpenPrusa" };
             for (int i = 0; i < methods.Length; i++)
             {
                 int id = DispatchProbe.FindId(addin, methods[i]);
@@ -268,11 +299,10 @@ public static class CallbackInteropSmoke
             if (DispatchProbe.InvokeInt(addin, "AlwaysEnabled") != 1) throw new Exception("AlwaysEnabled dispatch result is incorrect.");
             if (DispatchProbe.InvokeInt(addin, "CanExport") != 0) throw new Exception("Export should be disabled without a document.");
             Console.WriteLine("PASS native IDispatch.Invoke: both enable callbacks.");
-
             host = new HostStub();
             if (!addin.ConnectToSW(host, 123)) throw new Exception("ConnectToSW failed against the test host.");
-            if (host.Manager.Group.CommandCount != 4 || host.Manager.TabCount != 2 || host.Manager.RemovedCount != 2 || !host.Manager.IgnorePrevious)
-                throw new Exception("Expected four commands and a one-time replacement of the two old tabs.");
+            if (host.Manager.Group.CommandCount != 7 || host.Manager.TabCount != 2 || host.Manager.RemovedCount != 2 || !host.Manager.IgnorePrevious)
+                throw new Exception("Expected seven commands and a one-time replacement of the two old tabs.");
             CheckIcons(host.Manager.Group.IconList, host.Manager.Group.MainIconList);
             string damaged = ((string[])host.Manager.Group.IconList)[0];
             iconCache = Path.GetDirectoryName(damaged);
@@ -285,7 +315,7 @@ public static class CallbackInteropSmoke
             if (host.Manager.TabCount != 2 || host.Manager.RemovedCount != 2 || host.Manager.IgnorePrevious)
                 throw new Exception("Toolbar customization was reset again after migration.");
             if (!addin.DisconnectFromSW()) throw new Exception("Second DisconnectFromSW failed.");
-            Console.WriteLine("PASS: one-time icon migration; subsequent startup preserves the tabs.");
+            Console.WriteLine("PASS: seven commands, stable IDs, one-time migration and preservation of customized tabs.");
             Console.WriteLine("NOTE: API stubs validate Windows COM and embedded artwork, not a SOLIDWORKS host session.");
             return 0;
         }
