@@ -4,7 +4,8 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.ComTypes;
+using DISPPARAMS = System.Runtime.InteropServices.ComTypes.DISPPARAMS;
+using EXCEPINFO = System.Runtime.InteropServices.ComTypes.EXCEPINFO;
 using SolidWorksSlicerBridge;
 
 namespace SolidWorks.Interop.swpublished
