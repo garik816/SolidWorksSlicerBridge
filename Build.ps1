@@ -44,9 +44,19 @@ foreach ($r in $refs) {
     if (!(Test-Path $r)) { throw "Missing reference: $r" }
 }
 
+# SOLIDWORKS 2026 interop exposes SaveAs3 errors/warnings as ref parameters.
+# Also qualify System.Environment because sldworks interop contains an Environment type.
+$sourceOriginal = Join-Path $Root "src\SwAddin.cs"
+$sourceCompat = Join-Path $Out "SwAddin.compat.cs"
+$sourceText = Get-Content -Path $sourceOriginal -Raw -Encoding UTF8
+$sourceText = $sourceText.Replace("out errors,", "ref errors,")
+$sourceText = $sourceText.Replace("out warnings);", "ref warnings);")
+$sourceText = $sourceText.Replace("Environment.GetFolderPath(Environment.SpecialFolder.", "System.Environment.GetFolderPath(System.Environment.SpecialFolder.")
+Set-Content -Path $sourceCompat -Value $sourceText -Encoding UTF8
+
 $dll = Join-Path $Out "SolidWorksSlicerBridge.dll"
 $sources = @(
-    (Join-Path $Root "src\SwAddin.cs"),
+    $sourceCompat,
     (Join-Path $Root "src\SettingsForm.cs")
 )
 
