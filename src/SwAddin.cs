@@ -9,60 +9,153 @@ using Microsoft.Win32;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using SolidWorks.Interop.swpublished;
+using Environment = System.Environment;
 
 namespace SolidWorksSlicerBridge
 {
+    // SOLIDWORKS resolves toolbar callbacks by name through IDispatch.
+    // ISwAddin is the lifecycle interface, not the toolbar callback contract.
+    // Keep this interface GUID, member signatures and DISPIDs stable.
+    [ComVisible(true)]
+    [Guid("74DE7382-4B9D-4D50-A028-84754928FD6A")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+    public interface ISlicerCallbacks
+    {
+        [DispId(1)] int CanExport();
+        [DispId(2)] int AlwaysEnabled();
+        [DispId(3)] void OpenInOrca();
+        [DispId(4)] void OpenInBambu();
+        [DispId(5)] void OpenInPrusa();
+        [DispId(6)] void ShowSettings();
+    }
+
     [ComVisible(true)]
     [Guid("D51D3347-A8E7-4892-A8BD-391203C2E8A4")]
     [ProgId("SolidWorksSlicerBridge.Addin")]
     [ClassInterface(ClassInterfaceType.None)]
-    public class SwAddin : ISwAddin
+    [ComDefaultInterface(typeof(ISlicerCallbacks))]
+    public class SwAddin : ISwAddin, ISlicerCallbacks
     {
         private const int CommandGroupId = 73191;
         private const string CommandTabName = "3D Print";
         private const string AddinGuid = "{D51D3347-A8E7-4892-A8BD-391203C2E8A4}";
+        private const string BridgeVersion = "1.0.5";
 
         private ISldWorks swApp;
         private ICommandManager commandManager;
         private ICommandGroup commandGroup;
         private int addinCookie;
+        private string startupStage = "ConnectToSW";
+        private string runtimeLogPath;
 
         public bool ConnectToSW(object ThisSW, int Cookie)
         {
             try
             {
+                InitializeRuntimeLog();
+                WriteRuntimeLog("Starting " + BridgeVersion + "; cookie=" + Cookie);
+                WriteRuntimeLog("Add-in: " + Assembly.GetExecutingAssembly().Location);
+                WriteRuntimeLog("API: " + typeof(ISldWorks).Assembly.FullName);
+                WriteRuntimeLog("API path: " + typeof(ISldWorks).Assembly.Location);
+                WriteRuntimeLog("Runtime: " + Environment.Version + "; x64=" + Environment.Is64BitProcess);
+
+                SetStartupStage("Cast SOLIDWORKS application to ISldWorks");
                 swApp = (ISldWorks)ThisSW;
                 addinCookie = Cookie;
-                swApp.SetAddinCallbackInfo2(0, this, addinCookie);
+                try { WriteRuntimeLog("SOLIDWORKS revision: " + swApp.RevisionNumber()); } catch { }
+
+                // Detect a missing dispatch interface before the COM argument marshaler does.
+                // Release only the pointer acquired here, not SOLIDWORKS-owned RCWs.
+                SetStartupStage("Verify callback IDispatch");
+                IntPtr dispatch = Marshal.GetIDispatchForObject(this);
+                try
+                {
+                    if (dispatch == IntPtr.Zero)
+                        throw new InvalidOperationException("Callback IDispatch is unavailable.");
+                }
+                finally { if (dispatch != IntPtr.Zero) Marshal.Release(dispatch); }
+
+                SetStartupStage("SetAddinCallbackInfo2");
+                if (!swApp.SetAddinCallbackInfo2(0, this, addinCookie))
+                    throw new InvalidOperationException("SOLIDWORKS rejected the callback object.");
+
+                SetStartupStage("GetCommandManager");
                 commandManager = swApp.GetCommandManager(addinCookie);
+                if (commandManager == null)
+                    throw new InvalidOperationException("SOLIDWORKS returned no CommandManager.");
+
                 AddCommandManager();
+                SetStartupStage("Connected");
                 return true;
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Не удалось загрузить SolidWorks Slicer Bridge.\r\n\r\n" + ex.Message,
+                string failedStage = startupStage;
+                WriteRuntimeLog("FAILED at " + failedStage + Environment.NewLine + ex.ToString());
+                try { RemoveCommandManager(); } catch { }
+                commandGroup = null;
+                commandManager = null;
+                swApp = null;
+                MessageBox.Show("Не удалось загрузить SolidWorks Slicer Bridge " + BridgeVersion + ".\r\n\r\n" +
+                    "Этап: " + failedStage + "\r\n" + ex.GetType().Name + " (0x" + ex.HResult.ToString("X8") + "): " + ex.Message +
+                    "\r\n\r\nЛог: " + (runtimeLogPath ?? "недоступен"),
                     "SolidWorks Slicer Bridge", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
         }
 
+        private void InitializeRuntimeLog()
+        {
+            try
+            {
+                string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "SolidWorksSlicerBridge", "logs");
+                Directory.CreateDirectory(folder);
+                runtimeLogPath = Path.Combine(folder, "addin.log");
+                if (File.Exists(runtimeLogPath) && new FileInfo(runtimeLogPath).Length > 2 * 1024 * 1024)
+                {
+                    File.Copy(runtimeLogPath, runtimeLogPath + ".previous", true);
+                    File.WriteAllText(runtimeLogPath, String.Empty, Encoding.UTF8);
+                }
+            }
+            catch { runtimeLogPath = null; }
+        }
+
+        private void WriteRuntimeLog(string text)
+        {
+            try
+            {
+                if (runtimeLogPath != null)
+                    File.AppendAllText(runtimeLogPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") +
+                        " [" + Process.GetCurrentProcess().Id + "] " + text + Environment.NewLine, Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        private void SetStartupStage(string stage)
+        {
+            startupStage = stage;
+            WriteRuntimeLog("STAGE: " + stage);
+        }
+
         public bool DisconnectFromSW()
         {
+            WriteRuntimeLog("DisconnectFromSW");
             try { RemoveCommandManager(); } catch { }
             commandGroup = null;
             commandManager = null;
             swApp = null;
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
             return true;
         }
 
         private void AddCommandManager()
         {
+            SetStartupStage("GetGroupDataFromRegistry");
             int createErrors = 0;
             object previousIds = null;
             bool hasPrevious = commandManager.GetGroupDataFromRegistry(CommandGroupId, out previousIds);
 
+            SetStartupStage("CreateCommandGroup2");
             commandGroup = commandManager.CreateCommandGroup2(
                 CommandGroupId,
                 "3D Print Slicers",
@@ -87,31 +180,43 @@ namespace SolidWorksSlicerBridge
                 mains[i] = Path.Combine(iconDir, "main_" + sizes[i] + ".png");
             }
 
+            SetStartupStage("Set CommandGroup.IconList");
             commandGroup.IconList = strips;
+            SetStartupStage("Set CommandGroup.MainIconList");
             commandGroup.MainIconList = mains;
 
             int menuAndToolbar = (int)swCommandItemType_e.swMenuItem | (int)swCommandItemType_e.swToolbarItem;
 
+            SetStartupStage("AddCommandItem2: OrcaSlicer");
             int orcaIndex = commandGroup.AddCommandItem2(
                 "OrcaSlicer", -1, "Экспорт 3MF и открыть в OrcaSlicer", "Open in OrcaSlicer", 0,
                 "OpenInOrca", "CanExport", 1001, menuAndToolbar);
 
+            SetStartupStage("AddCommandItem2: Bambu Studio");
             int bambuIndex = commandGroup.AddCommandItem2(
                 "Bambu Studio", -1, "Экспорт 3MF и открыть в Bambu Studio", "Open in Bambu Studio", 1,
                 "OpenInBambu", "CanExport", 1002, menuAndToolbar);
 
+            SetStartupStage("AddCommandItem2: PrusaSlicer");
             int prusaIndex = commandGroup.AddCommandItem2(
                 "PrusaSlicer", -1, "Экспорт 3MF и открыть в PrusaSlicer", "Open in PrusaSlicer", 2,
                 "OpenInPrusa", "CanExport", 1003, menuAndToolbar);
 
+            SetStartupStage("AddCommandItem2: Settings");
             int settingsIndex = commandGroup.AddCommandItem2(
                 "Slicer Settings", -1, "Настроить пути к слайсерам", "Slicer Settings", 3,
                 "ShowSettings", "AlwaysEnabled", 1004, menuAndToolbar);
 
+            if (orcaIndex < 0 || bambuIndex < 0 || prusaIndex < 0 || settingsIndex < 0)
+                throw new InvalidOperationException("SOLIDWORKS could not create all toolbar commands.");
+
+            SetStartupStage("Activate CommandGroup");
             commandGroup.HasToolbar = true;
             commandGroup.HasMenu = true;
-            commandGroup.Activate();
+            if (!commandGroup.Activate())
+                throw new InvalidOperationException("SOLIDWORKS could not activate the command group.");
 
+            SetStartupStage("Read command IDs");
             int[] ids = new int[] {
                 commandGroup.get_CommandID(orcaIndex),
                 commandGroup.get_CommandID(bambuIndex),
@@ -125,23 +230,27 @@ namespace SolidWorksSlicerBridge
 
         private void AddCommandTab(int docType, int[] commandIds)
         {
+            SetStartupStage("GetCommandTab: document type " + docType);
             ICommandTab tab = commandManager.GetCommandTab(docType, CommandTabName);
             if (tab != null) return;
 
+            SetStartupStage("AddCommandTab: document type " + docType);
             tab = commandManager.AddCommandTab(docType, CommandTabName);
             if (tab == null) return;
 
+            SetStartupStage("AddCommandTabBox: document type " + docType);
             CommandTabBox box = tab.AddCommandTabBox();
             int[] styles = new int[commandIds.Length];
             for (int i = 0; i < styles.Length; i++)
                 styles[i] = (int)swCommandTabButtonTextDisplay_e.swCommandTabButton_TextHorizontal;
 
+            SetStartupStage("AddCommands: document type " + docType);
             box.AddCommands(commandIds, styles);
         }
 
         private void RemoveCommandManager()
         {
-            if (commandManager == null) return;
+            if (commandManager == null || commandGroup == null) return;
             try { commandManager.RemoveCommandGroup2(CommandGroupId, true); } catch { }
         }
 
@@ -195,6 +304,7 @@ namespace SolidWorksSlicerBridge
             }
             catch (Exception ex)
             {
+                WriteRuntimeLog("Export failure: " + ex.ToString());
                 MessageBox.Show("Ошибка экспорта/запуска:\r\n\r\n" + ex.Message,
                     "3D Print", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
@@ -235,8 +345,8 @@ namespace SolidWorksSlicerBridge
                     (int)swSaveAsOptions_e.swSaveAsOptions_Silent,
                     null,
                     null,
-                    out errors,
-                    out warnings);
+                    ref errors,
+                    ref warnings);
 
                 if (!ok || errors != 0 || !File.Exists(outputPath))
                     throw new InvalidOperationException("SOLIDWORKS не смог сохранить 3MF. Error=" + errors + ", Warning=" + warnings);
