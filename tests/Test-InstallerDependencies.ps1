@@ -11,10 +11,10 @@ if ($PSVersionTable.PSVersion.Major -ne 5 -or ![Environment]::Is64BitProcess) {
 $repository = Split-Path -Parent $PSScriptRoot
 $work = Join-Path $env:TEMP ('SWSB dependency test ' + [Guid]::NewGuid().ToString('N'))
 $stage = Join-Path $work 'Product Files'
-$mockProgramFiles = Join-Path $work 'Program Files'
-$api = Join-Path $mockProgramFiles 'SOLIDWORKS Corp\SOLIDWORKS\api\redist'
+$api = Join-Path $env:ProgramFiles 'SOLIDWORKS Corp\SOLIDWORKS\api\redist'
+if (Test-Path -LiteralPath $api) { throw 'Refusing to replace an existing SOLIDWORKS API directory.' }
+$ownsApiFolder = $false
 $incomplete = Join-Path $work 'Incomplete Output'
-$oldProgramFiles = $env:ProgramFiles
 $framework = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
 $csc = Join-Path $framework 'csc.exe'
 $regasm = Join-Path $framework 'RegAsm.exe'
@@ -23,21 +23,42 @@ $testClassId = [Guid]::NewGuid().ToString()
 $dll = Join-Path $stage 'build\SolidWorksSlicerBridge.dll'
 
 function Invoke-NativeCapture([string]$Exe, [string[]]$ToolArguments) {
-    $old = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        $output = @(& $Exe @ToolArguments 2>&1)
-        $code = $LASTEXITCODE
+    # Drain both streams asynchronously, with a bounded wait and no PowerShell
+    # native-stderr promotion. Test arguments contain no embedded quote or trailing slash.
+    $quoted = foreach ($argument in $ToolArguments) {
+        if ($argument.Contains('"') -or $argument.EndsWith('\')) { throw 'Unsupported fixture argument.' }
+        '"' + $argument + '"'
     }
-    finally { $ErrorActionPreference = $old }
-    foreach ($line in $output) { Write-Host $line.ToString() }
-    return [pscustomobject]@{ Code = $code; Text = ($output | Out-String) }
+    $info = New-Object System.Diagnostics.ProcessStartInfo
+    $info.FileName = $Exe
+    $info.Arguments = $quoted -join ' '
+    $info.WorkingDirectory = $work
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $info
+    Write-Host ("RUN: {0} {1}" -f $Exe, $info.Arguments)
+    try {
+        if (!$process.Start()) { throw "Could not start $Exe" }
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        $finished = $process.WaitForExit(60000)
+        if (!$finished) { $process.Kill(); $process.WaitForExit() }
+        $text = $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()
+        Write-Host $text
+        if (!$finished) { throw "Test process timed out: $Exe" }
+        return [pscustomobject]@{ Code = $process.ExitCode; Text = $text }
+    }
+    finally { $process.Dispose() }
 }
 
 try {
     foreach ($folder in @($api, $incomplete, (Join-Path $stage 'src'), (Join-Path $stage 'Icons'))) {
         New-Item -ItemType Directory -Path $folder -Force | Out-Null
     }
+    $ownsApiFolder = $true
     Copy-Item -LiteralPath (Join-Path $repository 'Build.ps1') -Destination $stage
     Copy-Item -LiteralPath (Join-Path $repository 'Install.ps1') -Destination $stage
     Copy-Item -LiteralPath (Join-Path $repository 'Icons\main_20.png') -Destination (Join-Path $stage 'Icons')
@@ -84,10 +105,8 @@ public class RegistrationSmokeTest : DependencyMarker {
     Write-Host 'PASS: missing dependency produces a genuine RegAsm failure.'
 
     # Use the real Install.ps1 and Build.ps1 unchanged, with isolated fixture inputs.
-    # Only the child environment points at this fake Program Files directory.
-    $env:ProgramFiles = $mockProgramFiles
+    # The disposable runner now has fixture APIs in the standard installation path.
     $result = Invoke-NativeCapture $powershell @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $stage 'Install.ps1'), '-Quiet', '-SkipElevation')
-    $env:ProgramFiles = $oldProgramFiles
     $installLog = Join-Path $stage 'install.log'
     if (Test-Path -LiteralPath $installLog) { Get-Content -LiteralPath $installLog | ForEach-Object { Write-Host $_ } }
     if ($result.Code -ne 0) { throw "Production installer script failed: $($result.Code)" }
@@ -110,11 +129,13 @@ public class RegistrationSmokeTest : DependencyMarker {
     Write-Host 'PASS: production installer completed real RegAsm registration on PowerShell 5.1.'
 }
 finally {
-    $env:ProgramFiles = $oldProgramFiles
+    $log = Join-Path $stage 'install.log'
+    if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log | ForEach-Object { Write-Host $_ } }
     if (Test-Path -LiteralPath $dll) {
         # Only the randomly generated fixture class is unregistered, never the real add-in.
         $cleanup = Invoke-NativeCapture $regasm @($dll, '/unregister', '/tlb', '/nologo')
         if ($cleanup.Code -ne 0) { Write-Warning "Fixture cleanup exit code: $($cleanup.Code)" }
     }
+    if ($ownsApiFolder) { Remove-Item -LiteralPath $api -Recurse -Force }
     if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
 }
