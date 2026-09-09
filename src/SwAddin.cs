@@ -203,7 +203,7 @@ namespace SolidWorksSlicerBridge
             commandGroup.IconList = strips;
             SetStartupStage("Set CommandGroup.MainIconList");
             commandGroup.MainIconList = mains;
-            int menuAndToolbar = (int)swCommandItemType_e.swMenuItem | (int)swCommandItemType_e.swMenuItem;
+            int menuAndToolbar = (int)swCommandItemType_e.swMenuItem | (int)swCommandItemType_e.swToolbarItem;
 
             SetStartupStage("AddCommandItem2: OrcaSlicer");
             int orcaIndex = commandGroup.AddCommandItem2(
