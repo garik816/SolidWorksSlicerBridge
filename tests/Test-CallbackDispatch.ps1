@@ -27,8 +27,45 @@ try {
         '/reference:System.Windows.Forms.dll',
         (Join-Path $PSScriptRoot 'CallbackInteropSmoke.cs')
     ) + $sources + $resources
+
+    # Reintroduce only the v1.0.6 type mismatch in a temporary source copy.
+    # The corrected test doubles must reject it with the user's CS1503 error;
+    # this prevents an overly permissive API stub from masking the regression.
+    $addinSource = Join-Path $root 'src\SwAddin.cs'
+    $sourceText = Get-Content -LiteralPath $addinSource -Raw -Encoding UTF8
+    $correct = 'CommandTab tab = commandManager.GetCommandTab'
+    if ([regex]::Matches($sourceText, [regex]::Escape($correct)).Count -ne 1) {
+        throw 'Expected exactly one typed CommandTab acquisition for the regression control.'
+    }
+    $negativeSource = Join-Path $work 'SwAddin.negative.cs'
+    $sourceText.Replace($correct, 'ICommandTab tab = commandManager.GetCommandTab') |
+        Set-Content -LiteralPath $negativeSource -Encoding UTF8
+    $negativeExe = Join-Path $work 'NegativeCommandTab.exe'
+    $negativeArguments = foreach ($argument in $compilerArguments) {
+        if ($argument -eq $addinSource) { $negativeSource }
+        elseif ($argument -eq "/out:$exe") { "/out:$negativeExe" }
+        else { $argument }
+    }
+    $negativeLog = Join-Path $work 'negative-compilation.log'
+    $oldPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $csc @negativeArguments > $negativeLog 2>&1
+        $negativeExit = $LASTEXITCODE
+    }
+    finally { $ErrorActionPreference = $oldPreference }
+    $negativeText = Get-Content -LiteralPath $negativeLog -Raw
+    if ($negativeExit -eq 0 -or $negativeText -notmatch 'error CS1503:.*ICommandTab.*CommandTab') {
+        throw "The negative control did not reproduce the CommandTab type error: $negativeText"
+    }
+    $unexpected = [regex]::Matches($negativeText, 'error (CS\d+):') |
+        Where-Object { $_.Groups[1].Value -notin @('CS1502', 'CS1503') }
+    if ($unexpected) { throw "Unrelated errors in negative control: $negativeText" }
+    Write-Host 'PASS negative control: v1.0.6 ICommandTab argument is rejected with CS1503.'
+
     & $csc @compilerArguments
     if ($LASTEXITCODE -ne 0) { throw 'Callback regression test compilation failed.' }
+    Write-Host 'PASS: corrected production source compiles against the strict CommandTab contract.'
 
     # Prove the running add-in reads images from its assembly, not build folders.
     Remove-Item -LiteralPath $iconDirectory -Recurse -Force
