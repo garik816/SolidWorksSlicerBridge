@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'New release version, e.g. 1.0.4'
+        description: 'New release version, e.g. 1.0.5'
         required: true
-        default: '1.0.4'
+        default: '1.0.5'
 
 permissions:
   contents: write
@@ -49,6 +49,13 @@ jobs:
           }
           "version=$v" >> $env:GITHUB_OUTPUT
           "tag=v$v" >> $env:GITHUB_OUTPUT
+
+      - name: Test native IDispatch callbacks on PowerShell 5.1
+        shell: powershell
+        timeout-minutes: 3
+        run: |
+          & .\tests\Test-CallbackDispatch.ps1
+          if (-not $?) { exit 1 }
 
       - name: Test installer dependency deployment on PowerShell 5.1
         shell: powershell
