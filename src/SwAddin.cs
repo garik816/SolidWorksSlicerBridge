@@ -42,7 +42,7 @@ namespace SolidWorksSlicerBridge
         private const int CommandGroupId = 73191;
         private const string CommandTabName = "3D Print";
         private const string AddinGuid = "{D51D3347-A8E7-4892-A8BD-391203C2E8A4}";
-        private const string BridgeVersion = "1.0.8";
+        private const string BridgeVersion = "1.0.9";
 
         private ISldWorks swApp;
         private ICommandManager commandManager;
@@ -203,7 +203,7 @@ namespace SolidWorksSlicerBridge
             commandGroup.IconList = strips;
             SetStartupStage("Set CommandGroup.MainIconList");
             commandGroup.MainIconList = mains;
-            int menuAndToolbar = (int)swCommandItemType_e.swMenuItem | (int)swCommandItemType_e.swToolbarItem;
+            int menuAndToolbar = (int)swCommandItemType_e.swMenuItem | (int)swCommandItemType_e.swMenuItem;
 
             SetStartupStage("AddCommandItem2: OrcaSlicer");
             int orcaIndex = commandGroup.AddCommandItem2(
