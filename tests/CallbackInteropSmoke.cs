@@ -1,9 +1,11 @@
-// Windows-only test support. These are deliberately limited API stubs, NOT
-// vendor interop assemblies. This file is never packaged or used by the add-in.
-// The real src/SwAddin.cs and SettingsForm.cs are compiled into this test.
+// Windows-only test support. Limited API stubs, not vendor interop assemblies.
+// Never packaged. The actual add-in source and embedded artwork are tested here.
 using System;
 using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
 using System.Runtime.InteropServices;
+using Microsoft.Win32;
 using DISPPARAMS = System.Runtime.InteropServices.ComTypes.DISPPARAMS;
 using EXCEPINFO = System.Runtime.InteropServices.ComTypes.EXCEPINFO;
 using SolidWorksSlicerBridge;
@@ -32,7 +34,6 @@ namespace SolidWorks.Interop.swconst
 
 namespace SolidWorks.Interop.sldworks
 {
-    // Deliberately reproduce the namespace collision in the vendor API.
     public class Environment { }
     public interface ISldWorks
     {
@@ -59,13 +60,26 @@ namespace SolidWorks.Interop.sldworks
     {
         public object Callbacks;
         public int TabCount;
+        public int RemovedCount;
+        public bool IgnorePrevious;
         public ICommandGroup Group;
-        public bool GetGroupDataFromRegistry(int id, out object data) { data = null; return false; }
+        private readonly Dictionary<int, ICommandTab> tabs = new Dictionary<int, ICommandTab>();
+        public ICommandManager() { tabs[1] = new ICommandTab(); tabs[2] = new ICommandTab(); }
+        public bool GetGroupDataFromRegistry(int id, out object data)
+        { data = new int[] { 1001, 1002, 1003, 1004 }; return true; }
         public ICommandGroup CreateCommandGroup2(int id, string title, string tooltip,
             string hint, int position, bool ignore, ref int errors)
-        { errors = 0; Group = new ICommandGroup { Callbacks = Callbacks }; return Group; }
-        public ICommandTab GetCommandTab(int type, string name) { return null; }
-        public ICommandTab AddCommandTab(int type, string name) { TabCount++; return new ICommandTab(); }
+        { errors = 0; IgnorePrevious = ignore; Group = new ICommandGroup { Callbacks = Callbacks }; return Group; }
+        public ICommandTab GetCommandTab(int type, string name)
+        { ICommandTab tab; return tabs.TryGetValue(type, out tab) ? tab : null; }
+        public ICommandTab AddCommandTab(int type, string name)
+        { TabCount++; ICommandTab tab = new ICommandTab(); tabs[type] = tab; return tab; }
+        public bool RemoveCommandTab(ICommandTab tab)
+        {
+            foreach (int type in new List<int>(tabs.Keys))
+                if (Object.ReferenceEquals(tabs[type], tab)) { tabs.Remove(type); RemovedCount++; return true; }
+            return false;
+        }
         public bool RemoveCommandGroup2(int id, bool runtimeOnly) { return true; }
     }
     public class ICommandGroup
@@ -81,6 +95,7 @@ namespace SolidWorks.Interop.sldworks
         {
             DispatchProbe.FindId(Callbacks, callback);
             DispatchProbe.FindId(Callbacks, enable);
+            if (image != CommandCount) throw new Exception("Incorrect icon index for " + name);
             return CommandCount++;
         }
         public int get_CommandID(int index) { return 1000 + index; }
@@ -103,7 +118,6 @@ public static class DispatchProbe
 {
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int GetIds(IntPtr self, ref Guid iid, IntPtr names, uint count, uint locale, IntPtr ids);
-
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int InvokeMethod(IntPtr self, int id, ref Guid iid, uint locale, ushort flags,
         ref DISPPARAMS arguments, [MarshalAs(UnmanagedType.Struct)] out object result,
@@ -160,25 +174,64 @@ public static class DispatchProbe
 public class HostStub : SolidWorks.Interop.sldworks.ISldWorks
 {
     public readonly SolidWorks.Interop.sldworks.ICommandManager Manager = new SolidWorks.Interop.sldworks.ICommandManager();
+    private readonly string revision = "ICON-TEST-" + Guid.NewGuid().ToString("N");
     public bool SetAddinCallbackInfo2(long handle, object callbacks, int cookie)
     {
-        // Same dispatch requirement as a native COM callback argument.
         if (DispatchProbe.InvokeInt(callbacks, "AlwaysEnabled") != 1) return false;
         Manager.Callbacks = callbacks;
         return true;
     }
     public SolidWorks.Interop.sldworks.ICommandManager GetCommandManager(int cookie) { return Manager; }
     public object ActiveDoc { get { return null; } }
-    public string RevisionNumber() { return "TEST STUB - NOT SOLIDWORKS"; }
+    public string RevisionNumber() { return revision; }
     public bool GetUserPreferenceToggle(int pref) { return false; }
     public bool SetUserPreferenceToggle(int pref, bool value) { return true; }
 }
 
 public static class CallbackInteropSmoke
 {
+    private static void CheckIcons(object stripsObject, object mainsObject)
+    {
+        string[] strips = (string[])stripsObject;
+        string[] mains = (string[])mainsObject;
+        int[] sizes = { 20, 32, 40, 64, 96, 128 };
+        if (strips.Length != 6 || mains.Length != 6) throw new Exception("Missing icon sizes.");
+        for (int i = 0; i < sizes.Length; i++)
+        {
+            int size = sizes[i];
+            using (Bitmap strip = new Bitmap(strips[i]))
+            using (Bitmap main = new Bitmap(mains[i]))
+            {
+                if (strip.Width != size * 4 || strip.Height != size || main.Width != size || main.Height != size)
+                    throw new Exception("Incorrect icon dimensions.");
+                if (strip.GetPixel(0, 0).A != 0) throw new Exception("Icon background must be transparent.");
+                HashSet<int> hashes = new HashSet<int>();
+                int green = 0, orange = 0;
+                for (int tile = 0; tile < 4; tile++)
+                {
+                    int hash = 17;
+                    for (int y = 0; y < size; y++)
+                        for (int x = 0; x < size; x++)
+                        {
+                            Color c = strip.GetPixel(tile * size + x, y);
+                            hash = unchecked(hash * 31 + c.ToArgb());
+                            if (tile == 1 && c.A > 200 && c.G > 130 && c.R < 60 && c.B < 110) green++;
+                            if (tile == 2 && c.A > 200 && c.R > 180 && c.G > 60 && c.G < 160 && c.B < 80) orange++;
+                        }
+                    hashes.Add(hash);
+                }
+                if (hashes.Count != 4 || green < size * size / 5 || orange < size * size / 10)
+                    throw new Exception("Wrong application glyphs or icon order.");
+            }
+        }
+        Console.WriteLine("PASS: twelve embedded PNGs, six sizes, transparent background and original app colors/order.");
+    }
+
     [STAThread]
     public static int Main()
     {
+        HostStub host = null;
+        string iconCache = null;
         try
         {
             bool rejected = false;
@@ -208,15 +261,31 @@ public static class CallbackInteropSmoke
             if (DispatchProbe.InvokeInt(addin, "CanExport") != 0) throw new Exception("Export should be disabled without a document.");
             Console.WriteLine("PASS native IDispatch.Invoke: both enable callbacks.");
 
-            HostStub host = new HostStub();
+            host = new HostStub();
             if (!addin.ConnectToSW(host, 123)) throw new Exception("ConnectToSW failed against the test host.");
-            if (host.Manager.Group.CommandCount != 4 || host.Manager.TabCount != 2)
-                throw new Exception("Expected four commands and two document tabs.");
+            if (host.Manager.Group.CommandCount != 4 || host.Manager.TabCount != 2 || host.Manager.RemovedCount != 2 || !host.Manager.IgnorePrevious)
+                throw new Exception("Expected four commands and a one-time replacement of the two old tabs.");
+            CheckIcons(host.Manager.Group.IconList, host.Manager.Group.MainIconList);
+            string damaged = ((string[])host.Manager.Group.IconList)[0];
+            iconCache = Path.GetDirectoryName(damaged);
+            File.WriteAllText(damaged, "damaged cache test");
+            ToolbarIcons.Extract();
+            CheckIcons(host.Manager.Group.IconList, host.Manager.Group.MainIconList);
+            Console.WriteLine("PASS: damaged icon cache repaired from embedded resources.");
             if (!addin.DisconnectFromSW()) throw new Exception("DisconnectFromSW failed.");
-            Console.WriteLine("PASS production ConnectToSW and DisconnectFromSW with API stubs.");
-            Console.WriteLine("NOTE: this verifies Windows COM callbacks, not operation inside SOLIDWORKS.");
+            if (!addin.ConnectToSW(host, 123)) throw new Exception("Second ConnectToSW failed.");
+            if (host.Manager.TabCount != 2 || host.Manager.RemovedCount != 2 || host.Manager.IgnorePrevious)
+                throw new Exception("Toolbar customization was reset again after migration.");
+            if (!addin.DisconnectFromSW()) throw new Exception("Second DisconnectFromSW failed.");
+            Console.WriteLine("PASS: one-time icon migration; subsequent startup preserves the tabs.");
+            Console.WriteLine("NOTE: API stubs validate Windows COM and embedded artwork, not a SOLIDWORKS host session.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex.ToString()); return 1; }
+        finally
+        {
+            if (host != null) Registry.CurrentUser.DeleteSubKeyTree(@"Software\SolidWorksSlicerBridge\UI\" + host.RevisionNumber(), false);
+            if (iconCache != null && Directory.Exists(iconCache)) Directory.Delete(iconCache, true);
+        }
     }
 }

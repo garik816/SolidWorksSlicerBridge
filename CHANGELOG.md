@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.6 — 2026-09-09
+
+### Original application icons inside the add-in
+
+- Replace placeholder button images with the original upstream OrcaSlicer, Bambu Studio and PrusaSlicer artwork. Settings uses a neutral gear.
+- Bundle the SVG sources and render them offline with Windows/.NET into 20, 32, 40, 64, 96 and 128 pixel PNG strips. No internet, Python, or third-party image package is needed during installation.
+- Embed all twelve PNGs in the add-in DLL. Extract only those resources into a per-user, build-specific cache because the SOLIDWORKS API accepts image paths, not resource streams.
+- Refresh only this add-in's two **3D Print** document tabs once, removing cached placeholder images. Subsequent launches preserve toolbar customization. Export logic and slicer paths are unchanged.
+- Validate generated PNG dimensions, transparency, app colors/order, embedded-resource loading without external image files, cache repair, one-time migration, native COM callbacks and installation dependency deployment in Windows CI. A real SOLIDWORKS UI session remains a manual validation step.
+
 ## 1.0.5 — 2026-09-09
 
 ### Fixed

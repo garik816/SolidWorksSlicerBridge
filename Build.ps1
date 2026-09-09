@@ -44,13 +44,25 @@ foreach ($r in $refs) {
     if (!(Test-Path $r)) { throw "Missing reference: $r" }
 }
 
+# Render the bundled original SVGs offline, then embed every size into the DLL.
+# The running add-in never needs Python, internet access or external icon files.
+$iconDest = Join-Path $Out "Icons"
+& (Join-Path $Root "Generate-Icons.ps1") -OutputDirectory $iconDest
+$resourceArgs = @()
+foreach ($size in @(20, 32, 40, 64, 96, 128)) {
+    foreach ($kind in @('toolbar', 'main')) {
+        $name = "${kind}_$size.png"
+        $path = Join-Path $iconDest $name
+        if (!(Test-Path -LiteralPath $path)) { throw "Missing generated icon: $path" }
+        $resourceArgs += "/resource:$path,SolidWorksSlicerBridge.Icons.$name"
+    }
+}
+
 # Compile the actual checked-in source: no source rewriting at installation time.
 $dll = Join-Path $Out "SolidWorksSlicerBridge.dll"
-$sources = @(
-    (Join-Path $Root "src\SwAddin.cs"),
-    (Join-Path $Root "src\SettingsForm.cs")
-)
-
+$sources = @(Get-ChildItem -LiteralPath (Join-Path $Root 'src') -Filter '*.cs' -File |
+    Sort-Object Name | Select-Object -ExpandProperty FullName)
+if ($sources.Count -eq 0) { throw 'No add-in source files found.' }
 $compilerArgs = @(
     "/nologo",
     "/target:library",
@@ -66,7 +78,7 @@ $compilerArgs = @(
     "/reference:$($refs[0])",
     "/reference:$($refs[1])",
     "/reference:$($refs[2])"
-) + $sources
+) + $resourceArgs + $sources
 
 & $csc $compilerArgs
 if ($LASTEXITCODE -ne 0) { throw "C# build failed." }
@@ -88,9 +100,6 @@ foreach ($reference in $refs) {
     Write-Host "Copied to: $destination; SHA256: $copiedHash"
 }
 
-$iconDest = Join-Path $Out "Icons"
-New-Item -ItemType Directory -Force -Path $iconDest | Out-Null
-Copy-Item (Join-Path $Root "Icons\*.png") $iconDest -Force
-
 Write-Host "Built: $dll" -ForegroundColor Green
 Write-Host "SOLIDWORKS API: $apiDir"
+Write-Host 'Embedded original toolbar icons: 12 PNG resources'

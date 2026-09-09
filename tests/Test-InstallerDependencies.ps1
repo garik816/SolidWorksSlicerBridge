@@ -61,7 +61,8 @@ try {
     $ownsApiFolder = $true
     Copy-Item -LiteralPath (Join-Path $repository 'Build.ps1') -Destination $stage
     Copy-Item -LiteralPath (Join-Path $repository 'Install.ps1') -Destination $stage
-    Copy-Item -LiteralPath (Join-Path $repository 'Icons\main_20.png') -Destination (Join-Path $stage 'Icons')
+    Copy-Item -LiteralPath (Join-Path $repository 'Generate-Icons.ps1') -Destination $stage
+    Copy-Item -LiteralPath (Join-Path $repository 'Icons\Source') -Destination (Join-Path $stage 'Icons') -Recurse
 
     foreach ($name in @('sldworks', 'swconst', 'swpublished')) {
         $source = Join-Path $work ($name + '.cs')

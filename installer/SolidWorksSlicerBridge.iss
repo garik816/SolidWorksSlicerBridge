@@ -4,7 +4,7 @@
 #define MyAppId "{{D51D3347-A8E7-4892-A8BD-391203C2E8A4}"
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
+  #define MyAppVersion "1.0.6"
 #endif
 
 [Setup]
@@ -37,9 +37,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Files]
-Source: "..\src\SwAddin.cs"; DestDir: "{app}\src"; Flags: ignoreversion
-Source: "..\src\SettingsForm.cs"; DestDir: "{app}\src"; Flags: ignoreversion
-Source: "..\Icons\*.png"; DestDir: "{app}\Icons"; Flags: ignoreversion
+Source: "..\src\*.cs"; DestDir: "{app}\src"; Flags: ignoreversion
+Source: "..\Icons\Source\*"; DestDir: "{app}\Icons\Source"; Flags: ignoreversion
+Source: "..\Generate-Icons.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\Build.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\Install.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\Uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion

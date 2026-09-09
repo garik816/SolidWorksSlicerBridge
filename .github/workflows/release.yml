@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'New release version, e.g. 1.0.5'
+        description: 'New release version, e.g. 1.0.6'
         required: true
-        default: '1.0.5'
+        default: '1.0.6'
 
 permissions:
   contents: write
@@ -50,7 +50,7 @@ jobs:
           "version=$v" >> $env:GITHUB_OUTPUT
           "tag=v$v" >> $env:GITHUB_OUTPUT
 
-      - name: Test native IDispatch callbacks on PowerShell 5.1
+      - name: Test native IDispatch callbacks and embedded icons on PowerShell 5.1
         shell: powershell
         timeout-minutes: 3
         run: |
@@ -62,6 +62,12 @@ jobs:
         timeout-minutes: 3
         run: |
           & .\tests\Test-InstallerDependencies.ps1
+          if (-not $?) { exit 1 }
+
+      - name: Render icon verification artifact
+        shell: powershell
+        run: |
+          & .\Generate-Icons.ps1 -OutputDirectory .\release\icon-preview
           if (-not $?) { exit 1 }
 
       - name: Install Inno Setup
@@ -89,6 +95,7 @@ jobs:
           path: |
             release/*.exe
             release/*.sha256
+            release/icon-preview/*.png
           if-no-files-found: error
 
       - name: Publish GitHub Release

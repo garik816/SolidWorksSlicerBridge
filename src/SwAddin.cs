@@ -39,7 +39,7 @@ namespace SolidWorksSlicerBridge
         private const int CommandGroupId = 73191;
         private const string CommandTabName = "3D Print";
         private const string AddinGuid = "{D51D3347-A8E7-4892-A8BD-391203C2E8A4}";
-        private const string BridgeVersion = "1.0.5";
+        private const string BridgeVersion = "1.0.6";
 
         private ISldWorks swApp;
         private ICommandManager commandManager;
@@ -47,6 +47,8 @@ namespace SolidWorksSlicerBridge
         private int addinCookie;
         private string startupStage = "ConnectToSW";
         private string runtimeLogPath;
+        private bool refreshCommandTabs;
+        private string uiRevision;
 
         public bool ConnectToSW(object ThisSW, int Cookie)
         {
@@ -154,6 +156,8 @@ namespace SolidWorksSlicerBridge
             int createErrors = 0;
             object previousIds = null;
             bool hasPrevious = commandManager.GetGroupDataFromRegistry(CommandGroupId, out previousIds);
+            uiRevision = swApp.RevisionNumber();
+            refreshCommandTabs = !hasPrevious || ToolbarIcons.NeedsRefresh(uiRevision);
 
             SetStartupStage("CreateCommandGroup2");
             commandGroup = commandManager.CreateCommandGroup2(
@@ -162,14 +166,15 @@ namespace SolidWorksSlicerBridge
                 "Экспортировать активную модель в 3MF и открыть в слайсере",
                 "",
                 -1,
-                !hasPrevious,
+                refreshCommandTabs,
                 ref createErrors);
 
             if (commandGroup == null)
                 throw new InvalidOperationException("SOLIDWORKS не создал CommandGroup. Код: " + createErrors);
 
-            string baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            string iconDir = Path.Combine(baseDir, "Icons");
+            SetStartupStage("Extract embedded application icons");
+            string iconDir = ToolbarIcons.Extract();
+            WriteRuntimeLog("Embedded toolbar icons: " + iconDir);
             int[] sizes = new int[] { 20, 32, 40, 64, 96, 128 };
             string[] strips = new string[sizes.Length];
             string[] mains = new string[sizes.Length];
@@ -226,12 +231,22 @@ namespace SolidWorksSlicerBridge
 
             AddCommandTab((int)swDocumentTypes_e.swDocPART, ids);
             AddCommandTab((int)swDocumentTypes_e.swDocASSEMBLY, ids);
+            try { ToolbarIcons.MarkCurrent(uiRevision); }
+            catch (Exception ex) { WriteRuntimeLog("Could not record toolbar icon revision: " + ex.Message); }
         }
 
         private void AddCommandTab(int docType, int[] commandIds)
         {
             SetStartupStage("GetCommandTab: document type " + docType);
             ICommandTab tab = commandManager.GetCommandTab(docType, CommandTabName);
+            if (tab != null && refreshCommandTabs)
+            {
+                // One-time migration of our own tab; do not reset other SOLIDWORKS toolbars.
+                SetStartupStage("Refresh 3D Print icons: document type " + docType);
+                if (!commandManager.RemoveCommandTab(tab))
+                    throw new InvalidOperationException("Could not refresh the 3D Print command tab.");
+                tab = null;
+            }
             if (tab != null) return;
 
             SetStartupStage("AddCommandTab: document type " + docType);
