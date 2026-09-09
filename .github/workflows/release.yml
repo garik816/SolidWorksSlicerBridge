@@ -2,8 +2,6 @@ name: Build release installer
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -31,12 +29,9 @@ jobs:
           if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
             $v = '${{ inputs.version }}' -replace '^v', ''
             $tag = "v$v"
-          } elseif ('${{ github.ref_type }}' -eq 'tag') {
+          } else {
             $tag = '${{ github.ref_name }}'
             $v = $tag -replace '^v', ''
-          } else {
-            $v = '1.0.2'
-            $tag = 'v1.0.2'
           }
           "version=$v" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
