@@ -76,9 +76,17 @@ function Read-Icon([string]$name, [int]$size) {
 }
 
 function Save-IconPng([Windows.Media.Imaging.BitmapSource]$bitmap, [string]$path) {
-    # Use the 256-color strips specified by the SOLIDWORKS CommandGroup API.
-    $palette = [Windows.Media.Imaging.BitmapPalette]::new($bitmap, 256)
-    $indexed = [Windows.Media.Imaging.FormatConvertedBitmap]::new($bitmap, [Windows.Media.PixelFormats]::Indexed8, $palette, 0)
+    # SOLIDWORKS CommandGroup uses 256-color image strips. WPF's automatically
+    # computed palette discards alpha, and AlphaThreshold=0 maps no pixels to
+    # transparency. Reserve an explicit transparent entry before conversion.
+    $optimized = [Windows.Media.Imaging.BitmapPalette]::new($bitmap, 255)
+    $colors = [Collections.Generic.List[Windows.Media.Color]]::new()
+    $colors.Add([Windows.Media.Color]::FromArgb(0, 0, 0, 0))
+    foreach ($color in $optimized.Colors) {
+        $colors.Add([Windows.Media.Color]::FromArgb(255, $color.R, $color.G, $color.B))
+    }
+    $palette = [Windows.Media.Imaging.BitmapPalette]::new($colors)
+    $indexed = [Windows.Media.Imaging.FormatConvertedBitmap]::new($bitmap, [Windows.Media.PixelFormats]::Indexed8, $palette, 50)
     $encoder = [Windows.Media.Imaging.PngBitmapEncoder]::new()
     $encoder.Frames.Add([Windows.Media.Imaging.BitmapFrame]::Create($indexed))
     $stream = [IO.File]::Create($path)
