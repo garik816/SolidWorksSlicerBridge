@@ -20,7 +20,7 @@ permissions:
 
 concurrency:
   group: release-installer
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   installer:
@@ -52,6 +52,7 @@ jobs:
 
       - name: Test installer dependency deployment on PowerShell 5.1
         shell: powershell
+        timeout-minutes: 3
         run: |
           & .\tests\Test-InstallerDependencies.ps1
           if (-not $?) { exit 1 }
