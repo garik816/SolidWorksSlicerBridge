@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.8 — 2026-09-09
+
+### Added
+
+- Three **Add to open ...** buttons for OrcaSlicer, Bambu Studio and PrusaSlicer, in addition to the existing 3MF launch buttons. Original application icons and existing command IDs are preserved.
+- Discover initialized slicer windows in the current Windows session. Use the only matching window automatically, or let the user choose among multiple window titles/PIDs. Never silently start a new instance for an append request.
+- Send geometry-only binary STL in millimeters through targeted `WM_COPYDATA`, using each slicer's existing import handler. Preserve the normal 3MF export path. Restore temporary STL preferences even when export fails.
+- Support the legacy argument-list protocol and the PrusaSlicer JSON protocol introduced in 2.9.1, with explicit EXE-version detection and correctly escaped Unicode, spaces and semicolons.
+- Reject stale recipients and disabled/modal main windows; bound delivery to five seconds and never automatically retry an uncertain delivery.
+- Clean both `.3mf` and `.stl` exports older than seven days after successful export/dispatch. Temporary model directory: `%TEMP%\SolidWorksSlicerBridge`.
+- [Usage, storage and compatibility details](docs/APPEND_TO_OPEN_WINDOW.md).
+
+### Validation
+
+- Cover nine native COM callback names, seven commands and one-time toolbar migration.
+- Add actual cross-process Windows receiver fixtures for discovery, selected-window delivery, UTF-16 payloads, protocol escaping, zero WndProc results, PID mismatch, disabled windows, unrelated processes and timeouts.
+- Simulate CAD export success/failures to check STL units, binary format and preference restoration. These fixtures are not real slicers or vendor API DLLs; an end-to-end CAD-to-slicer UI session is still a manual validation step.
+- Include the exact source snapshot in the workflow artifact for reproducible inspection; no test executable is shipped in Setup.
+
 ## 1.0.7 — 2026-09-09
 
 ### Fixed
