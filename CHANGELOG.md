@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.5 — 2026-09-09
+
+### Fixed
+
+- Expose all six toolbar callbacks through an explicit COM-visible `ISlicerCallbacks` IDispatch interface with stable DISPIDs. Make it the add-in's default COM interface while preserving the existing `ISwAddin` lifecycle interface and class GUID.
+- The old `ClassInterfaceType.None` class did not provide a dispatch contract for the toolbar callbacks. Registration alone could not validate this requirement.
+- Compile the corrected source directly; remove install-time text rewriting. Keep the `SaveAs3` ref arguments and the `System.Environment` alias in source control.
+
+### Diagnostics and validation
+
+- Record each startup operation, loaded interop identity/location and full exception details to `%LOCALAPPDATA%\SolidWorksSlicerBridge\logs\addin.log`.
+- Include the version, failed stage and HRESULT in the error dialog. Generate PDB symbols locally for useful stack traces.
+- Add a Windows COM regression test with a negative control for the old callback shape. Compile the production source against limited API stubs, check native `IDispatch::GetIDsOfNames` for all six methods, invoke both enable callbacks through native `IDispatch::Invoke`, and exercise startup/teardown against the stub host.
+- Neither the stubs nor their test executable are packaged. These tests do **not** constitute an end-to-end test inside SOLIDWORKS 2026; model export still needs host validation.
+
 ## 1.0.4 — 2026-09-09
 
 ### Fixed
