@@ -59,10 +59,28 @@ try {
     if (!(Test-Path $regasm)) { throw "RegAsm not found: $regasm" }
 
     Write-InstallLog "Running RegAsm"
-    & $regasm $dll /codebase /tlb *>&1 | ForEach-Object {
-        Write-InstallLog ("REGASM: " + $_.ToString())
+
+    # RegAsm writes non-fatal warnings (for example RA0000 for unsigned /codebase assemblies)
+    # to stderr. PowerShell 5.1 can promote that stderr record to a terminating error when
+    # $ErrorActionPreference is Stop. Capture all output with Continue and trust RegAsm's exit code.
+    $savedErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $regasmOutput = & $regasm $dll /codebase /tlb 2>&1
+        $regasmExitCode = $LASTEXITCODE
     }
-    if ($LASTEXITCODE -ne 0) { throw "RegAsm failed with exit code $LASTEXITCODE." }
+    finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
+
+    foreach ($line in $regasmOutput) {
+        Write-InstallLog ("REGASM: " + $line.ToString())
+    }
+
+    Write-InstallLog "RegAsm exit code: $regasmExitCode"
+    if ($regasmExitCode -ne 0) {
+        throw "RegAsm failed with exit code $regasmExitCode."
+    }
 
     Write-InstallLog "Install completed successfully"
 
