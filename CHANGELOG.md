@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.9 — 2026-09-09
+
+### Fixed
+
+- Fix both `CS0023` compilation errors in `AppendExport.cs` introduced in v1.0.8. `ISldWorks.SetUserPreferenceToggle` returns `void`, not `bool`; call it as a statement and verify the resulting value with `GetUserPreferenceToggle`.
+- Read back restored toggle values as well. A rejected setting, a restoration mismatch or an exception prevents dispatch, while restoration of the other saved settings is still attempted.
+- Keep `SetUserPreferenceIntegerValue`'s Boolean result handling: it has a different API contract. Preserve all seven commands, original icons, normal 3MF export and existing-window delivery.
+
+### Regression coverage
+
+- Correct the shared API stubs to use a void toggle setter. Previously the incorrect Boolean stub allowed the invalid production expressions to compile in CI.
+- Compile a temporary copy of the production source with both old expressions restored. It must produce two `CS0023` errors before the fixed source is built.
+- Test silently ignored changes, an already-correct value, exceptions after partial mutation, restoration mismatches and restoration exceptions, in addition to the existing STL, COM, icon and cross-process IPC tests.
+- These tests use limited API stubs and Windows receiver fixtures. They do not replace compilation against the installed SOLIDWORKS API or an end-to-end session in SOLIDWORKS and the actual slicers.
+
 ## 1.0.8 — 2026-09-09
 
 ### Added
