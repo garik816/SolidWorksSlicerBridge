@@ -15,7 +15,7 @@ namespace SolidWorksSlicerBridge
 {
     // SOLIDWORKS resolves toolbar callbacks by name through IDispatch.
     // ISwAddin is the lifecycle interface, not the toolbar callback contract.
-    // Keep this interface GUID, member signatures and DISPIDs stable.
+    // Keep existing member signatures and DISPIDs stable; append new members.
     [ComVisible(true)]
     [Guid("74DE7382-4B9D-4D50-A028-84754928FD6A")]
     [InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
@@ -27,6 +27,9 @@ namespace SolidWorksSlicerBridge
         [DispId(4)] void OpenInBambu();
         [DispId(5)] void OpenInPrusa();
         [DispId(6)] void ShowSettings();
+        [DispId(7)] void AddToOpenOrca();
+        [DispId(8)] void AddToOpenBambu();
+        [DispId(9)] void AddToOpenPrusa();
     }
 
     [ComVisible(true)]
@@ -39,7 +42,7 @@ namespace SolidWorksSlicerBridge
         private const int CommandGroupId = 73191;
         private const string CommandTabName = "3D Print";
         private const string AddinGuid = "{D51D3347-A8E7-4892-A8BD-391203C2E8A4}";
-        private const string BridgeVersion = "1.0.7";
+        private const string BridgeVersion = "1.0.8";
 
         private ISldWorks swApp;
         private ICommandManager commandManager;
@@ -66,7 +69,6 @@ namespace SolidWorksSlicerBridge
                 addinCookie = Cookie;
                 try { WriteRuntimeLog("SOLIDWORKS revision: " + swApp.RevisionNumber()); } catch { }
 
-                // Detect a missing dispatch interface before the COM argument marshaler does.
                 // Release only the pointer acquired here, not SOLIDWORKS-owned RCWs.
                 SetStartupStage("Verify callback IDispatch");
                 IntPtr dispatch = Marshal.GetIDispatchForObject(this);
@@ -150,6 +152,19 @@ namespace SolidWorksSlicerBridge
             return true;
         }
 
+        private static bool HasCurrentCommands(object previousIds)
+        {
+            Array ids = previousIds as Array;
+            if (ids == null || ids.Length != 7) return false;
+            try
+            {
+                for (int i = 0; i < 7; i++)
+                    if (Convert.ToInt32(ids.GetValue(i)) != 1001 + i) return false;
+                return true;
+            }
+            catch { return false; }
+        }
+
         private void AddCommandManager()
         {
             SetStartupStage("GetGroupDataFromRegistry");
@@ -157,13 +172,13 @@ namespace SolidWorksSlicerBridge
             object previousIds = null;
             bool hasPrevious = commandManager.GetGroupDataFromRegistry(CommandGroupId, out previousIds);
             uiRevision = swApp.RevisionNumber();
-            refreshCommandTabs = !hasPrevious || ToolbarIcons.NeedsRefresh(uiRevision);
+            refreshCommandTabs = !hasPrevious || !HasCurrentCommands(previousIds) || ToolbarIcons.NeedsRefresh(uiRevision);
 
             SetStartupStage("CreateCommandGroup2");
             commandGroup = commandManager.CreateCommandGroup2(
                 CommandGroupId,
                 "3D Print Slicers",
-                "Экспортировать активную модель в 3MF и открыть в слайсере",
+                "Экспортировать активную модель и открыть или добавить в слайсер",
                 "",
                 -1,
                 refreshCommandTabs,
@@ -178,7 +193,6 @@ namespace SolidWorksSlicerBridge
             int[] sizes = new int[] { 20, 32, 40, 64, 96, 128 };
             string[] strips = new string[sizes.Length];
             string[] mains = new string[sizes.Length];
-
             for (int i = 0; i < sizes.Length; i++)
             {
                 strips[i] = Path.Combine(iconDir, "toolbar_" + sizes[i] + ".png");
@@ -189,30 +203,39 @@ namespace SolidWorksSlicerBridge
             commandGroup.IconList = strips;
             SetStartupStage("Set CommandGroup.MainIconList");
             commandGroup.MainIconList = mains;
-
             int menuAndToolbar = (int)swCommandItemType_e.swMenuItem | (int)swCommandItemType_e.swToolbarItem;
 
             SetStartupStage("AddCommandItem2: OrcaSlicer");
             int orcaIndex = commandGroup.AddCommandItem2(
                 "OrcaSlicer", -1, "Экспорт 3MF и открыть в OrcaSlicer", "Open in OrcaSlicer", 0,
                 "OpenInOrca", "CanExport", 1001, menuAndToolbar);
-
             SetStartupStage("AddCommandItem2: Bambu Studio");
             int bambuIndex = commandGroup.AddCommandItem2(
                 "Bambu Studio", -1, "Экспорт 3MF и открыть в Bambu Studio", "Open in Bambu Studio", 1,
                 "OpenInBambu", "CanExport", 1002, menuAndToolbar);
-
             SetStartupStage("AddCommandItem2: PrusaSlicer");
             int prusaIndex = commandGroup.AddCommandItem2(
                 "PrusaSlicer", -1, "Экспорт 3MF и открыть в PrusaSlicer", "Open in PrusaSlicer", 2,
                 "OpenInPrusa", "CanExport", 1003, menuAndToolbar);
-
             SetStartupStage("AddCommandItem2: Settings");
             int settingsIndex = commandGroup.AddCommandItem2(
                 "Slicer Settings", -1, "Настроить пути к слайсерам", "Slicer Settings", 3,
                 "ShowSettings", "AlwaysEnabled", 1004, menuAndToolbar);
 
-            if (orcaIndex < 0 || bambuIndex < 0 || prusaIndex < 0 || settingsIndex < 0)
+            // Reuse the embedded original program icons. Existing command IDs stay intact.
+            SetStartupStage("AddCommandItem2: append commands");
+            int addOrcaIndex = commandGroup.AddCommandItem2(
+                "Add to open OrcaSlicer", -1, "Добавить геометрию в открытое окно OrcaSlicer", "Add to open OrcaSlicer", 0,
+                "AddToOpenOrca", "CanExport", 1005, menuAndToolbar);
+            int addBambuIndex = commandGroup.AddCommandItem2(
+                "Add to open Bambu Studio", -1, "Добавить геометрию в открытое окно Bambu Studio", "Add to open Bambu Studio", 1,
+                "AddToOpenBambu", "CanExport", 1006, menuAndToolbar);
+            int addPrusaIndex = commandGroup.AddCommandItem2(
+                "Add to open PrusaSlicer", -1, "Добавить геометрию в открытое окно PrusaSlicer", "Add to open PrusaSlicer", 2,
+                "AddToOpenPrusa", "CanExport", 1007, menuAndToolbar);
+
+            if (orcaIndex < 0 || bambuIndex < 0 || prusaIndex < 0 || settingsIndex < 0 ||
+                addOrcaIndex < 0 || addBambuIndex < 0 || addPrusaIndex < 0)
                 throw new InvalidOperationException("SOLIDWORKS could not create all toolbar commands.");
 
             SetStartupStage("Activate CommandGroup");
@@ -226,9 +249,11 @@ namespace SolidWorksSlicerBridge
                 commandGroup.get_CommandID(orcaIndex),
                 commandGroup.get_CommandID(bambuIndex),
                 commandGroup.get_CommandID(prusaIndex),
+                commandGroup.get_CommandID(addOrcaIndex),
+                commandGroup.get_CommandID(addBambuIndex),
+                commandGroup.get_CommandID(addPrusaIndex),
                 commandGroup.get_CommandID(settingsIndex)
             };
-
             AddCommandTab((int)swDocumentTypes_e.swDocPART, ids);
             AddCommandTab((int)swDocumentTypes_e.swDocASSEMBLY, ids);
             try { ToolbarIcons.MarkCurrent(uiRevision); }
@@ -242,24 +267,20 @@ namespace SolidWorksSlicerBridge
             CommandTab tab = commandManager.GetCommandTab(docType, CommandTabName);
             if (tab != null && refreshCommandTabs)
             {
-                // One-time migration of our own tab; do not reset other SOLIDWORKS toolbars.
                 SetStartupStage("Refresh 3D Print icons: document type " + docType);
                 if (!commandManager.RemoveCommandTab(tab))
                     throw new InvalidOperationException("Could not refresh the 3D Print command tab.");
                 tab = null;
             }
             if (tab != null) return;
-
             SetStartupStage("AddCommandTab: document type " + docType);
             tab = commandManager.AddCommandTab(docType, CommandTabName);
             if (tab == null) return;
-
             SetStartupStage("AddCommandTabBox: document type " + docType);
             CommandTabBox box = tab.AddCommandTabBox();
             int[] styles = new int[commandIds.Length];
             for (int i = 0; i < styles.Length; i++)
                 styles[i] = (int)swCommandTabButtonTextDisplay_e.swCommandTabButton_TextHorizontal;
-
             SetStartupStage("AddCommands: document type " + docType);
             box.AddCommands(commandIds, styles);
         }
@@ -286,13 +307,18 @@ namespace SolidWorksSlicerBridge
         public void OpenInOrca() { ExportAndOpen(SlicerKind.Orca); }
         public void OpenInBambu() { ExportAndOpen(SlicerKind.Bambu); }
         public void OpenInPrusa() { ExportAndOpen(SlicerKind.Prusa); }
+        public void AddToOpenOrca() { ExportAndOpen(SlicerKind.Orca, true); }
+        public void AddToOpenBambu() { ExportAndOpen(SlicerKind.Bambu, true); }
+        public void AddToOpenPrusa() { ExportAndOpen(SlicerKind.Prusa, true); }
 
         public void ShowSettings()
         {
             using (SettingsForm form = new SettingsForm()) form.ShowDialog();
         }
 
-        private void ExportAndOpen(SlicerKind kind)
+        private void ExportAndOpen(SlicerKind kind) { ExportAndOpen(kind, false); }
+
+        private void ExportAndOpen(SlicerKind kind, bool append)
         {
             try
             {
@@ -302,7 +328,6 @@ namespace SolidWorksSlicerBridge
                     MessageBox.Show("Открой деталь или сборку.", "3D Print", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
-
                 int docType = model.GetType();
                 if (docType != (int)swDocumentTypes_e.swDocPART && docType != (int)swDocumentTypes_e.swDocASSEMBLY)
                 {
@@ -310,12 +335,23 @@ namespace SolidWorksSlicerBridge
                     return;
                 }
 
-                string exe = SlicerPaths.Resolve(kind, true);
-                if (String.IsNullOrEmpty(exe)) return;
-
-                string output = CreateOutputPath(model);
-                Export3Mf(model, output);
-                LaunchSlicer(exe, output);
+                if (append)
+                {
+                    SlicerWindow target = ExistingSlicerWindows.Choose(kind);
+                    if (target == null) return;
+                    ExistingSlicerWindows.ValidateTarget(target);
+                    string output = CreateOutputPath(model, ".stl");
+                    AppendExport.Save(swApp, model, output);
+                    ExistingSlicerWindows.SendModel(target, output, WriteRuntimeLog);
+                }
+                else
+                {
+                    string exe = SlicerPaths.Resolve(kind, true);
+                    if (String.IsNullOrEmpty(exe)) return;
+                    string output = CreateOutputPath(model, ".3mf");
+                    Export3Mf(model, output);
+                    LaunchSlicer(exe, output);
+                }
                 CleanupOldExports();
             }
             catch (Exception ex)
@@ -332,27 +368,23 @@ namespace SolidWorksSlicerBridge
             bool oldPreview = false;
             bool haveShowInfo = false;
             bool havePreview = false;
-
             try
             {
                 oldShowInfo = swApp.GetUserPreferenceToggle((int)swUserPreferenceToggle_e.sw3MFShowInfoOnSave);
                 haveShowInfo = true;
             }
             catch { }
-
             try
             {
                 oldPreview = swApp.GetUserPreferenceToggle((int)swUserPreferenceToggle_e.swSTLPreview);
                 havePreview = true;
             }
             catch { }
-
             try
             {
                 model.ClearSelection2(true);
                 try { swApp.SetUserPreferenceToggle((int)swUserPreferenceToggle_e.sw3MFShowInfoOnSave, false); } catch { }
                 try { swApp.SetUserPreferenceToggle((int)swUserPreferenceToggle_e.swSTLPreview, false); } catch { }
-
                 int errors = 0;
                 int warnings = 0;
                 bool ok = model.Extension.SaveAs3(
@@ -363,7 +395,6 @@ namespace SolidWorksSlicerBridge
                     null,
                     ref errors,
                     ref warnings);
-
                 if (!ok || errors != 0 || !File.Exists(outputPath))
                     throw new InvalidOperationException("SOLIDWORKS не смог сохранить 3MF. Error=" + errors + ", Warning=" + warnings);
             }
@@ -374,7 +405,7 @@ namespace SolidWorksSlicerBridge
             }
         }
 
-        private static string CreateOutputPath(IModelDoc2 model)
+        private static string CreateOutputPath(IModelDoc2 model, string extension)
         {
             string folder = Path.Combine(Path.GetTempPath(), "SolidWorksSlicerBridge");
             Directory.CreateDirectory(folder);
@@ -382,7 +413,7 @@ namespace SolidWorksSlicerBridge
             int dot = title.LastIndexOf('.');
             if (dot > 0) title = title.Substring(0, dot);
             title = MakeSafeFileName(title);
-            return Path.Combine(folder, title + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + ".3mf");
+            return Path.Combine(folder, title + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + extension);
         }
 
         private static string MakeSafeFileName(string value)
@@ -411,11 +442,13 @@ namespace SolidWorksSlicerBridge
             {
                 string folder = Path.Combine(Path.GetTempPath(), "SolidWorksSlicerBridge");
                 if (!Directory.Exists(folder)) return;
-                string[] files = Directory.GetFiles(folder, "*.3mf");
                 DateTime cutoff = DateTime.Now.AddDays(-7);
-                for (int i = 0; i < files.Length; i++)
+                foreach (string pattern in new string[] { "*.3mf", "*.stl" })
                 {
-                    try { if (File.GetLastWriteTime(files[i]) < cutoff) File.Delete(files[i]); } catch { }
+                    foreach (string file in Directory.GetFiles(folder, pattern))
+                    {
+                        try { if (File.GetLastWriteTime(file) < cutoff) File.Delete(file); } catch { }
+                    }
                 }
             }
             catch { }
@@ -429,9 +462,8 @@ namespace SolidWorksSlicerBridge
             {
                 key.SetValue(null, 0, RegistryValueKind.DWord);
                 key.SetValue("Title", "SolidWorks Slicer Bridge", RegistryValueKind.String);
-                key.SetValue("Description", "One-click 3MF export to OrcaSlicer, Bambu Studio and PrusaSlicer", RegistryValueKind.String);
+                key.SetValue("Description", "One-click export to OrcaSlicer, Bambu Studio and PrusaSlicer; add to an existing window", RegistryValueKind.String);
             }
-
             using (RegistryKey cu = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64))
             using (RegistryKey key = cu.CreateSubKey(@"Software\SolidWorks\AddInsStartup\" + AddinGuid))
                 key.SetValue(null, 1, RegistryValueKind.DWord);
@@ -446,7 +478,6 @@ namespace SolidWorksSlicerBridge
                     lm.DeleteSubKeyTree(@"SOFTWARE\SolidWorks\Addins\" + AddinGuid, false);
             }
             catch { }
-
             try
             {
                 using (RegistryKey cu = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64))
@@ -466,16 +497,13 @@ namespace SolidWorksSlicerBridge
         {
             string saved = ReadSaved(kind);
             if (File.Exists(saved)) return saved;
-
             string detected = AutoDetect(kind);
             if (!String.IsNullOrEmpty(detected))
             {
                 Save(kind, detected);
                 return detected;
             }
-
             if (!allowPrompt) return "";
-
             using (OpenFileDialog dialog = new OpenFileDialog())
             {
                 dialog.Title = "Укажи " + DisplayName(kind) + ".exe";
@@ -516,7 +544,6 @@ namespace SolidWorksSlicerBridge
             string[] candidates;
             string pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
             string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-
             if (kind == SlicerKind.Orca)
             {
                 exeName = "orca-slicer.exe";
@@ -545,7 +572,6 @@ namespace SolidWorksSlicerBridge
                     Path.Combine(local, @"Programs\PrusaSlicer\prusa-slicer.exe")
                 };
             }
-
             string fromRegistry = FindAppPath(exeName);
             if (File.Exists(fromRegistry)) return fromRegistry;
             for (int i = 0; i < candidates.Length; i++) if (File.Exists(candidates[i])) return candidates[i];
@@ -557,7 +583,6 @@ namespace SolidWorksSlicerBridge
             string sub = @"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\" + exeName;
             RegistryHive[] hives = new RegistryHive[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine };
             RegistryView[] views = new RegistryView[] { RegistryView.Registry64, RegistryView.Registry32 };
-
             for (int h = 0; h < hives.Length; h++)
             {
                 for (int v = 0; v < views.Length; v++)
