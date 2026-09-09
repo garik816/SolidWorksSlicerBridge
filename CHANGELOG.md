@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.7 — 2026-09-09
+
+### Fixed
+
+- Fix the v1.0.6 installation regression (`CS1502` / `CS1503`) in toolbar migration. Keep the `CommandTab` returned by `GetCommandTab` in a `CommandTab` variable; `RemoveCommandTab` requires that type, not `ICommandTab`.
+- Keep the embedded original application icons and existing export behavior.
+
+### Regression coverage
+
+- Correct the test doubles for `GetCommandTab`, `AddCommandTab` and `RemoveCommandTab` to use `CommandTab`, with a distinct `ICommandTab` interface. The old doubles accepted a broader parameter and hid the real compilation failure.
+- Add a negative-control compilation using a temporary copy of the production source with the old `ICommandTab` declaration restored. It must fail with `CS1503` before the corrected source is compiled and the existing icon, cache migration and COM callback tests run.
+- These are limited API contract and Windows COM tests, not a build against vendor API DLLs or an end-to-end SOLIDWORKS session. Installation still compiles against the user's installed SOLIDWORKS API.
+
 ## 1.0.6 — 2026-09-09
 
 ### Original application icons inside the add-in
